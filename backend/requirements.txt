@@ -1,0 +1,22 @@
+# Framework para la API
+fastapi
+uvicorn[standard]
+
+# Para la subida de archivos en FastAPI
+python-multipart
+
+# Cliente para MinIO (S3)
+boto3
+
+# Cliente para PostgreSQL
+psycopg2-binary
+
+# Dependencias de tu lógica de firma existente
+pyhanko
+qrcode
+Pillow
+cryptography
+
+# ORM para la base de datos
+sqlalchemy
+alembic

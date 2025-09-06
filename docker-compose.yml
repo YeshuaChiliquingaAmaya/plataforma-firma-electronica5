@@ -1,0 +1,63 @@
+version: '3.8'
+
+services:
+  # 1. El Backend: Nuestra API de Python con FastAPI
+  backend:
+    build:
+      context: ./backend # Le dice a Docker que construya usando el Dockerfile en la carpeta /backend
+    container_name: firma-backend
+    ports:
+      - "8000:8000" # Mapea el puerto 8000 del contenedor al puerto 8000 de tu máquina
+    volumes:
+      - ./backend:/app # Sincroniza tu código local con el contenedor para desarrollo en vivo
+    environment:
+      - DATABASE_URL=postgresql://user:password@postgres:5432/firmadb
+      - MINIO_ENDPOINT=http://minio:9000
+      - MINIO_ACCESS_KEY=minioadmin
+      - MINIO_SECRET_KEY=minioadmin
+    depends_on: # Se asegura de que la base de datos y minio inicien antes que el backend
+      - postgres
+      - minio
+    networks:
+      - firma-net
+
+  # 2. La Base de Datos: PostgreSQL
+  postgres:
+    image: postgres:14-alpine
+    container_name: firma-postgres
+    environment:
+      - POSTGRES_USER=user
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_DB=firmadb
+    volumes:
+      - postgres_data:/var/lib/postgresql/data # Persiste los datos de la base de datos
+    ports:
+      - "5432:5432" # Expone el puerto por si quieres conectar un cliente de BD
+    networks:
+      - firma-net
+
+  # 3. Almacenamiento de Archivos: MinIO (Compatible con S3)
+  minio:
+    image: minio/minio:RELEASE.2023-03-20T20-16-18Z
+    container_name: firma-minio
+    command: server /data --console-address ":9001"
+    ports:
+      - "9000:9000" # Puerto de la API de MinIO
+      - "9001:9001" # Puerto de la consola web de MinIO
+    environment:
+      - MINIO_ROOT_USER=minioadmin
+      - MINIO_ROOT_PASSWORD=minioadmin
+    volumes:
+      - minio_data:/data # Persiste los archivos subidos
+    networks:
+      - firma-net
+
+# Los volúmenes son como "discos duros" para nuestros contenedores
+volumes:
+  postgres_data:
+  minio_data:
+
+# La red permite que los contenedores se comuniquen entre sí usando sus nombres
+networks:
+  firma-net:
+    driver: bridge

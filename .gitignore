@@ -1,0 +1,27 @@
+HELP.md
+
+### VS Code ###
+.vscode/
+
+firma_0501431662.p12
+certificado_completo.p12
+
+/documentos_ejemplo
+
+__pycache__/
+*.pyc
+*.pyo
+*.log
+*.env
+*.sqlite3
+*.db
+*.bak
+*.tmp
+*.swp
+.DS_Store
+Thumbs.db
+node_modules/
+dist/
+build/
+.env.local
+.env.*
