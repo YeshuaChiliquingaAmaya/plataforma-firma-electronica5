@@ -73,8 +73,13 @@ async def sign_existing_document(
     password: str = Form(..., description="Contraseña del certificado."),
     signer_level: int = Form(..., description="Nivel jerárquico del firmante."),
     reason: str = Form("Documento revisado y aprobado", description="Razón de la firma."),
-    location: str = Form("Ecuador", description="Ubicación de la firma.")
-):
+    location: str = Form("Ecuador", description="Ubicación de la firma."),
+    page_index: int = Form(...),
+    x_coord: float = Form(...),
+    y_coord: float = Form(...),
+    width: float = Form(...)  # <--- ¡AQUÍ ESTÁ LA CORRECCIÓN!
+): # <--- Se añade el paréntesis de cierre aquí
+    
     doc_record = db.query(models.Document).filter(models.Document.id == document_id).first()
     if not doc_record:
         raise HTTPException(status_code=404, detail="Documento no encontrado.")
@@ -99,11 +104,18 @@ async def sign_existing_document(
             
         signer = PDFSigner(cert_path=cert_path, password=password)
         
+        # --- ¡AQUÍ ESTÁ LA CORRECCIÓN! ---
+        # Eliminamos el cálculo dinámico y usamos directamente los parámetros
+        # que nos llegan desde el frontend.
         success, message = await signer.async_sign_file(
             input_pdf=input_pdf_path,
             output_pdf=output_pdf_path,
-            reason=reason, location=location,
-            page_index=0, x_coord=100 + (signer_level * 20), y_coord=100, width=150
+            reason=reason, 
+            location=location,
+            page_index=page_index, 
+            x_coord=x_coord,
+            y_coord=y_coord, 
+            width=width
         )
         
         if not success:

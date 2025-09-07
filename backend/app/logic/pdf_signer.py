@@ -330,13 +330,14 @@ class PDFSigner:
         
         pdf_stamp_image = PdfImage(stamp_image)
         stamp_style = TextStampStyle(background=pdf_stamp_image, stamp_text="", border_width=0, background_opacity=1.0)
-        
+
         pdf_signer = PdfSigner(
-            signature_meta=metadata,
+            # --- ¡ESTA ES LA CORRECCIÓN FINAL! ---
+            signature_meta=PdfSignatureMetadata(field_name=unique_field_name, reason=reason, location=location),
             signer=self.signer,
-            new_field_spec=sig_field_spec,
-            stamp_style=stamp_style
+            stamp_style=TextStampStyle(background=PdfImage(stamp_image), stamp_text="")
         )
+                
         
         try:
             with open(input_pdf, "rb") as infile, open(output_pdf, "wb") as outfile:
@@ -374,12 +375,12 @@ class PDFSigner:
         if not location: location = " "
         
         try:
-            # --- ¡ESTA ES LA CORRECCIÓN DEFINITIVA! ---
-            # Paso 1: Abrimos el archivo y creamos un LECTOR explícito
+            # --- ¡ESTA ES LA CORRECCIÓN! ---
+            # Abrimos el archivo aquí y le pasamos el objeto 'infile' a pyhanko
             with open(input_pdf, "rb") as infile:
                 reader = PdfFileReader(infile, strict=False)
+                writer = IncrementalPdfFileWriter.from_reader(reader)
                 
-                # Paso 2: Usamos el lector para obtener el nombre único
                 unique_field_name = self._get_unique_field_name(reader)
 
                 stamp_image = self.create_stamp_image(reason, location)
@@ -392,8 +393,6 @@ class PDFSigner:
                     stamp_style=TextStampStyle(background=PdfImage(stamp_image), stamp_text="")
                 )
                 
-                # Paso 3: Creamos el escritor y le añadimos el campo de firma
-                writer = IncrementalPdfFileWriter(infile)
                 append_signature_field(
                     writer,
                     SigFieldSpec(
@@ -403,7 +402,6 @@ class PDFSigner:
                     )
                 )
 
-                # Paso 4: Firmamos y guardamos en el archivo de salida
                 with open(output_pdf, "wb") as outfile:
                     await pdf_signer.async_sign_pdf(writer, output=outfile)
 

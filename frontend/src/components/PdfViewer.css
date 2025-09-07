@@ -2,18 +2,16 @@
     position: relative;
     margin-bottom: 8px;
     display: inline-block;
-    /* Para que el contenedor se ajuste a la página */
 }
 
 .click-marker {
     position: absolute;
-    width: 20px;
-    height: 20px;
-    background-color: rgba(255, 0, 0, 0.5);
-    border: 2px solid red;
-    border-radius: 50%;
-    transform: translate(-50%, -50%);
-    /* Centra el marcador en el punto del clic */
+    background-color: rgba(255, 0, 0, 0.3);
+    /* Relleno semitransparente */
+    border: 1.5px solid red;
+    box-sizing: border-box;
+    /* El borde no aumenta el tamaño */
+    transform: translateY(-100%);
+    /* Lo posiciona con la esquina inferior izquierda en el clic */
     pointer-events: none;
-    /* Para que no interfiera con futuros clics */
 }
