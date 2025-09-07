@@ -138,6 +138,45 @@ async def sign_existing_document(
             raise e
         raise HTTPException(status_code=500, detail=f"Error inesperado en el servidor: {str(e)}")
 
+# --- ENDPOINT NUEVO: DESCARGAR UN DOCUMENTO PARA PREVISUALIZACIÓN ---
+@router.get("/{document_id}/download")
+async def download_document_for_preview(
+    document_id: UUID,
+    db: Session = Depends(database.get_db)
+):
+    """
+    Descarga el archivo PDF actual de un documento desde MinIO para
+    que el frontend pueda previsualizarlo.
+    """
+    # 1. Buscamos el registro del documento en la base de datos
+    doc_record = db.query(models.Document).filter(models.Document.id == document_id).first()
+    if not doc_record:
+        raise HTTPException(status_code=404, detail="Documento no encontrado.")
+    
+    # 2. Creamos un directorio temporal para la descarga
+    temp_dir = tempfile.mkdtemp()
+    local_pdf_path = os.path.join(temp_dir, doc_record.original_filename)
+
+    try:
+        # 3. Usamos nuestro cliente de MinIO para descargar el archivo
+        minio_client.download_file(
+            bucket_name=DOCUMENTS_BUCKET,
+            object_name=doc_record.storage_path,
+            file_path=local_pdf_path
+        )
+        
+        # 4. Devolvemos el archivo usando FileResponse, con una tarea de limpieza
+        cleanup_task = BackgroundTask(cleanup_temp_dir, temp_dir)
+        return FileResponse(
+            path=local_pdf_path,
+            filename=doc_record.original_filename,
+            media_type='application/pdf',
+            background=cleanup_task
+        )
+    except Exception as e:
+        cleanup_temp_dir(temp_dir)
+        raise HTTPException(status_code=500, detail=f"No se pudo obtener el archivo desde el almacenamiento: {e}")
+
 
 # --- ENDPOINT 3: OBTENER DOCUMENTOS PENDIENTES (BANDEJA DE ENTRADA) ---
 @router.get("/pending", response_model=List[schemas.DocumentBase])
