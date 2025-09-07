@@ -8,7 +8,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 from pyhanko.sign.signers import SimpleSigner, PdfSigner
 from pyhanko.sign import PdfSignatureMetadata
-from pyhanko.sign.fields import SigFieldSpec
+from pyhanko.sign.fields import SigFieldSpec, append_signature_field
 from pyhanko.pdf_utils.incremental_writer import IncrementalPdfFileWriter
 from pyhanko.pdf_utils.images import PdfImage
 from pyhanko.pdf_utils.reader import PdfFileReader
@@ -47,36 +47,30 @@ class PDFSigner:
         if custom_settings:
             self.settings.update(custom_settings)
 
-    def _get_unique_field_name(self, input_pdf):
-        """Genera un nombre único para el campo de firma verificando campos existentes"""
+    def _get_unique_field_name(self, reader: PdfFileReader):
+        """
+        Genera un nombre de campo de firma único (ej: QRSignature_1, QRSignature_2)
+        leyendo los campos existentes del PDF.
+        """
         try:
-            with open(input_pdf, "rb") as infile:
-                reader = PdfFileReader(infile)
-                existing_fields = set()
+            # Esta línea usa pyhanko para obtener todos los campos del formulario de forma eficiente
+            existing_fields = set(
+                f.field_name for f in reader.get_form_fields().values()
+            )
+            
+            base_name = "QRSignature"
+            counter = 1
+            unique_name = base_name
+            
+            while unique_name in existing_fields:
+                unique_name = f"{base_name}_{counter}"
+                counter += 1
+            
+            print(f"DEBUG: Nombre de campo de firma generado: {unique_name}")
+            return unique_name
                 
-                # Obtener campos de firma existentes
-                if hasattr(reader.root, '/AcroForm') and reader.root['/AcroForm'] is not None:
-                    acro_form = reader.root['/AcroForm']
-                    if hasattr(acro_form, '/Fields') and acro_form['/Fields'] is not None:
-                        for field_ref in acro_form['/Fields']:
-                            field = field_ref.get_object()
-                            if hasattr(field, '/T') and field['/T'] is not None:
-                                field_name = str(field['/T'])
-                                existing_fields.add(field_name)
-                
-                # Generar nombre único
-                base_name = "QRSignature"
-                counter = 1
-                unique_name = base_name
-                
-                while unique_name in existing_fields:
-                    unique_name = f"{base_name}_{counter}"
-                    counter += 1
-                
-                return unique_name
-                
-        except Exception as e:
-            # Si hay error leyendo el PDF, usar UUID como fallback
+        except Exception:
+            # Fallback si hay algún problema leyendo los campos
             return f"QRSignature_{uuid.uuid4().hex[:8]}"
 
     def create_stamp_image(self, reason, location, timestamp=None):
@@ -375,28 +369,46 @@ class PDFSigner:
                 return False, f"Error: El PDF podría tener restricciones de firma. Intente con un nombre de archivo diferente.\nDetalle: {error_msg}"
             return False, f"Error durante la firma: {type(e).__name__}: {e}"
 
-    # NUEVO MÉTODO ASÍNCRONO
     async def async_sign_file(self, input_pdf, output_pdf, reason, location, page_index, x_coord, y_coord, width):
         if not reason: reason = " "
         if not location: location = " "
         
-        stamp_image = self.create_stamp_image(reason, location)
-        aspect_ratio = float(stamp_image.height) / float(stamp_image.width)
-        height = round(width * aspect_ratio)
-        unique_field_name = self._get_unique_field_name(input_pdf)
-
-        pdf_signer = PdfSigner(
-            signature_meta=PdfSignatureMetadata(field_name=unique_field_name, reason=reason, location=location),
-            signer=self.signer,
-            new_field_spec=SigFieldSpec(sig_field_name=unique_field_name, on_page=page_index, box=(x_coord, y_coord, x_coord + width, y_coord + height)),
-            stamp_style=TextStampStyle(background=PdfImage(stamp_image), stamp_text="")
-        )
-        
         try:
-            with open(input_pdf, "rb") as infile, open(output_pdf, "wb") as outfile:
-                writer = IncrementalPdfFileWriter(infile, strict=False)
-                # ¡LA LLAMADA CLAVE AHORA ES ASÍNCRONA!
-                await pdf_signer.async_sign_pdf(writer, output=outfile)
+            # --- ¡ESTA ES LA CORRECCIÓN DEFINITIVA! ---
+            # Paso 1: Abrimos el archivo y creamos un LECTOR explícito
+            with open(input_pdf, "rb") as infile:
+                reader = PdfFileReader(infile, strict=False)
+                
+                # Paso 2: Usamos el lector para obtener el nombre único
+                unique_field_name = self._get_unique_field_name(reader)
+
+                stamp_image = self.create_stamp_image(reason, location)
+                aspect_ratio = float(stamp_image.height) / float(stamp_image.width) if stamp_image.width > 0 else 1.0
+                height = round(width * aspect_ratio)
+
+                pdf_signer = PdfSigner(
+                    signature_meta=PdfSignatureMetadata(field_name=unique_field_name, reason=reason, location=location),
+                    signer=self.signer,
+                    stamp_style=TextStampStyle(background=PdfImage(stamp_image), stamp_text="")
+                )
+                
+                # Paso 3: Creamos el escritor y le añadimos el campo de firma
+                writer = IncrementalPdfFileWriter(infile)
+                append_signature_field(
+                    writer,
+                    SigFieldSpec(
+                        sig_field_name=unique_field_name,
+                        on_page=page_index,
+                        box=(x_coord, y_coord, x_coord + width, y_coord + height)
+                    )
+                )
+
+                # Paso 4: Firmamos y guardamos en el archivo de salida
+                with open(output_pdf, "wb") as outfile:
+                    await pdf_signer.async_sign_pdf(writer, output=outfile)
+
             return True, f"¡Éxito! PDF firmado con QR guardado en:\n{output_pdf}"
         except Exception as e:
+            import traceback
+            print(traceback.format_exc())
             return False, f"Error durante la firma: {e}"
