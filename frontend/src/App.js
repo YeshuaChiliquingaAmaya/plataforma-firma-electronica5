@@ -1,17 +1,28 @@
-import React, { useState } from 'react';
-import axios from 'axios'; // Importamos axios
-import './App.css';
+import React, { useState, useCallback } from 'react';
+import axios from 'axios';
+
+// Importamos los componentes de Material-UI que vamos a usar
+import { Box, Button, Container, CssBaseline, TextField, Typography, Alert, CircularProgress, Link } from '@mui/material';
+import { createTheme, ThemeProvider } from '@mui/material/styles';
+import UploadFileIcon from '@mui/icons-material/UploadFile';
+
+// Creamos un tema básico para la aplicación
+const theme = createTheme({
+  palette: {
+    primary: {
+      main: '#1976d2',
+    },
+  },
+});
 
 function App() {
   const [pdfFiles, setPdfFiles] = useState([]);
   const [certFile, setCertFile] = useState(null);
   const [password, setPassword] = useState('');
   const [reason, setReason] = useState('Documento revisado y aprobado');
-  
-  // Nuevo estado para manejar el estado de carga
   const [isLoading, setIsLoading] = useState(false);
-  const [message, setMessage] = useState('Seleccione los archivos para firmar.');
-  const [isError, setIsError] = useState(false);
+  const [status, setStatus] = useState({ message: 'Seleccione los archivos para firmar.', type: 'info' });
+  const [downloadLinks, setDownloadLinks] = useState([]);
 
   const handlePdfChange = (event) => {
     setPdfFiles(Array.from(event.target.files));
@@ -20,31 +31,27 @@ function App() {
   const handleCertChange = (event) => {
     setCertFile(event.target.files[0]);
   };
-
-  // --- ¡AQUÍ ESTÁ LA MAGIA! ---
-  // Esta función ahora se comunica con el backend.
+  
   const handleSubmit = async (event) => {
     event.preventDefault();
 
     if (pdfFiles.length === 0 || !certFile || !password) {
-      setMessage('Por favor, complete todos los campos requeridos.');
-      setIsError(true);
+      setStatus({ message: 'Por favor, complete todos los campos requeridos.', type: 'error' });
       return;
     }
 
     setIsLoading(true);
-    setMessage(`Firmando ${pdfFiles.length} documento(s)... por favor espere.`);
-    setIsError(false);
+    setStatus({ message: `Firmando ${pdfFiles.length} documento(s)...`, type: 'info' });
+    setDownloadLinks([]); // Limpiamos los enlaces anteriores
 
-    // Usamos un bucle para enviar cada PDF a firmar
+    const newLinks = [];
+
     for (const pdfFile of pdfFiles) {
-      // FormData es la forma estándar de enviar archivos a una API
       const formData = new FormData();
       formData.append('pdf_file', pdfFile);
       formData.append('cert_file', certFile);
       formData.append('password', password);
       formData.append('reason', reason);
-      // Añadimos los demás campos que nuestra API espera
       formData.append('location', 'Ecuador');
       formData.append('page_index', 0);
       formData.append('x_coord', 400);
@@ -52,116 +59,154 @@ function App() {
       formData.append('width', 150);
 
       try {
-        // Hacemos la llamada POST a nuestra API de FastAPI
         const response = await axios.post('/api/sign', formData, {
-          headers: {
-            'Content-Type': 'multipart/form-data',
-          },
-          responseType: 'blob', // ¡Importante! Le decimos que esperamos un archivo como respuesta
+          headers: { 'Content-Type': 'multipart/form-data' },
+          responseType: 'blob',
         });
-
-        // Creamos una URL temporal para el archivo recibido (blob)
-        const url = window.URL.createObjectURL(new Blob([response.data]));
-        const link = document.createElement('a');
-        link.href = url;
-        // Le damos un nombre al archivo descargado
-        link.setAttribute('download', `firmado_${pdfFile.name}`);
-        document.body.appendChild(link);
-        link.click(); // Simulamos un clic para iniciar la descarga
         
-        // Limpiamos
-        link.parentNode.removeChild(link);
-        window.URL.revokeObjectURL(url);
+        const url = window.URL.createObjectURL(new Blob([response.data]));
+        const signedFileName = `firmado_${pdfFile.name}`;
+        newLinks.push({ url, name: signedFileName });
 
       } catch (error) {
         let errorMessage = 'Ocurrió un error al firmar el archivo.';
-        // Si el backend nos da un error específico, lo mostramos
         if (error.response && error.response.data) {
-           try {
-            // El error del backend viene como un Blob, necesitamos leerlo como texto
+          try {
             const errorText = await error.response.data.text();
             const errorJson = JSON.parse(errorText);
             errorMessage = errorJson.detail || errorMessage;
-           } catch (e) {
-            // Si no se puede parsear, mostramos el error genérico
-           }
+          } catch (e) { /* Fallback a mensaje genérico */ }
         }
-        setMessage(`Error al firmar ${pdfFile.name}: ${errorMessage}`);
-        setIsError(true);
-        setIsLoading(false); // Detenemos la carga si hay un error
-        return; // Salimos del bucle si un archivo falla
+        setStatus({ message: `Error al firmar ${pdfFile.name}: ${errorMessage}`, type: 'error' });
+        setIsLoading(false);
+        return;
       }
     }
-
-    // Si todo sale bien
-    setMessage(`¡Éxito! ${pdfFiles.length} documento(s) ha(n) sido firmado(s) y descargado(s).`);
+    
+    setDownloadLinks(newLinks);
+    setStatus({ message: `¡Éxito! ${pdfFiles.length} documento(s) firmado(s).`, type: 'success' });
     setIsLoading(false);
   };
 
-
   return (
-    <div className="App">
-      <header className="App-header">
-        <h1>Plataforma de Firma Electrónica</h1>
-        <p>Cargue uno o varios documentos PDF y su certificado para firmarlos digitalmente.</p>
-      </header>
-      <main>
-        <form className="sign-form" onSubmit={handleSubmit}>
-          
-          <div className="form-group">
-            <label htmlFor="pdf-files">1. Seleccione Archivo(s) PDF</label>
-            <input 
-              type="file" 
-              id="pdf-files" 
-              accept=".pdf" 
-              multiple 
-              onChange={handlePdfChange} 
-            />
-            {pdfFiles.length > 0 && <p>{pdfFiles.length} archivo(s) seleccionado(s)</p>}
-          </div>
-          
-          <div className="form-group">
-            <label htmlFor="cert-file">2. Seleccione su Certificado (.p12)</label>
-            <input 
-              type="file" 
-              id="cert-file" 
-              accept=".p12,.pfx" 
-              onChange={handleCertChange} 
-            />
-            {certFile && <p>{certFile.name}</p>}
-          </div>
+    <ThemeProvider theme={theme}>
+      <CssBaseline /> {/* Normaliza los estilos CSS en todos los navegadores */}
+      <Container maxWidth="sm">
+        <Box
+          sx={{
+            my: 4,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            p: 3,
+            bgcolor: 'background.paper',
+            borderRadius: 2,
+            boxShadow: 3,
+          }}
+        >
+          <Typography component="h1" variant="h4" gutterBottom>
+            Firma Electrónica
+          </Typography>
+          <Typography variant="subtitle1" color="text.secondary" sx={{ mb: 3 }}>
+            Cargue sus documentos y certificado para la firma digital.
+          </Typography>
 
-          <div className="form-group">
-            <label htmlFor="password">3. Ingrese su Contraseña</label>
-            <input 
-              type="password" 
-              id="password" 
-              value={password} 
-              onChange={(e) => setPassword(e.target.value)} 
-              placeholder="Contraseña del certificado"
-            />
-          </div>
+          <Box component="form" onSubmit={handleSubmit} noValidate sx={{ mt: 1, width: '100%' }}>
+            <Button
+              variant="outlined"
+              component="label"
+              fullWidth
+              startIcon={<UploadFileIcon />}
+              sx={{ mb: 2 }}
+            >
+              1. Seleccionar PDF(s)
+              <input type="file" hidden accept=".pdf" multiple onChange={handlePdfChange} />
+            </Button>
+            {pdfFiles.length > 0 && <Typography variant="body2" sx={{ mb: 2 }}>{pdfFiles.length} archivo(s) PDF seleccionado(s).</Typography>}
 
-          <div className="form-group">
-            <label htmlFor="reason">4. Razón de la Firma (Opcional)</label>
-            <input 
-              type="text" 
-              id="reason" 
-              value={reason} 
+            <Button
+              variant="outlined"
+              component="label"
+              fullWidth
+              startIcon={<UploadFileIcon />}
+              sx={{ mb: 2 }}
+            >
+              2. Seleccionar Certificado (.p12)
+              <input type="file" hidden accept=".p12,.pfx" onChange={handleCertChange} />
+            </Button>
+            {certFile && <Typography variant="body2" sx={{ mb: 2 }}>{certFile.name}</Typography>}
+
+            <TextField
+              margin="normal"
+              required
+              fullWidth
+              name="password"
+              label="3. Contraseña del Certificado"
+              type="password"
+              id="password"
+              autoComplete="current-password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+            />
+            
+            <TextField
+              margin="normal"
+              fullWidth
+              name="reason"
+              label="4. Razón de la Firma (Opcional)"
+              type="text"
+              id="reason"
+              value={reason}
               onChange={(e) => setReason(e.target.value)}
             />
-          </div>
 
-          <button type="submit" className="submit-btn" disabled={isLoading}>
-            {isLoading ? 'Firmando...' : 'Firmar Documentos'}
-          </button>
-        </form>
+            <Box sx={{ my: 2, position: 'relative' }}>
+              <Button
+                type="submit"
+                fullWidth
+                variant="contained"
+                disabled={isLoading}
+                size="large"
+              >
+                Firmar Documentos
+              </Button>
+              {isLoading && (
+                <CircularProgress
+                  size={24}
+                  sx={{
+                    position: 'absolute',
+                    top: '50%',
+                    left: '50%',
+                    marginTop: '-12px',
+                    marginLeft: '-12px',
+                  }}
+                />
+              )}
+            </Box>
+          </Box>
+        </Box>
         
-        <div className={`status-message ${isError ? 'error' : isLoading ? 'loading' : 'success'}`}>
-          {message}
-        </div>
-      </main>
-    </div>
+        {status.message && (
+          <Alert severity={status.type} sx={{ mt: 2 }}>
+            {status.message}
+          </Alert>
+        )}
+
+        {downloadLinks.length > 0 && (
+          <Box sx={{ mt: 2, p: 2, bgcolor: '#e8f5e9', borderRadius: 2 }}>
+            <Typography variant="h6" gutterBottom>Archivos Firmados:</Typography>
+            {downloadLinks.map((link, index) => (
+              <Typography key={index}>
+                <Link href={link.url} download={link.name}>
+                  Descargar {link.name}
+                </Link>
+              </Typography>
+            ))}
+          </Box>
+        )}
+
+      </Container>
+    </ThemeProvider>
   );
 }
 
