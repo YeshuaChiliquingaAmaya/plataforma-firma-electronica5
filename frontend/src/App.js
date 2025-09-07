@@ -1,49 +1,49 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState } from 'react';
 import axios from 'axios';
 
-// Importamos los componentes de Material-UI que vamos a usar
-import { Box, Button, Container, CssBaseline, TextField, Typography, Alert, CircularProgress, Link } from '@mui/material';
+// Importaciones de Material-UI
+import { Box, Container, CssBaseline, Typography, Alert, Link, Paper } from '@mui/material';
 import { createTheme, ThemeProvider } from '@mui/material/styles';
-import UploadFileIcon from '@mui/icons-material/UploadFile';
 
-// Creamos un tema básico para la aplicación
+import SignForm from './components/SignForm';
+import PdfViewer from './components/PdfViewer';
+
 const theme = createTheme({
-  palette: {
-    primary: {
-      main: '#1976d2',
-    },
-  },
+  palette: { primary: { main: '#1976d2' } },
 });
 
 function App() {
-  const [pdfFiles, setPdfFiles] = useState([]);
-  const [certFile, setCertFile] = useState(null);
-  const [password, setPassword] = useState('');
-  const [reason, setReason] = useState('Documento revisado y aprobado');
   const [isLoading, setIsLoading] = useState(false);
   const [status, setStatus] = useState({ message: 'Seleccione los archivos para firmar.', type: 'info' });
   const [downloadLinks, setDownloadLinks] = useState([]);
+  const [selectedPdf, setSelectedPdf] = useState(null);
+  
+  // --- ¡NUEVO ESTADO PARA LAS COORDENADAS! ---
+  const [signatureCoords, setSignatureCoords] = useState({ pageIndex: 0, x: 400, y: 100 });
 
-  const handlePdfChange = (event) => {
-    setPdfFiles(Array.from(event.target.files));
-  };
-
-  const handleCertChange = (event) => {
-    setCertFile(event.target.files[0]);
+  const handlePdfSelection = (files) => {
+    setSelectedPdf(files[0] || null);
+    setDownloadLinks([]);
   };
   
-  const handleSubmit = async (event) => {
-    event.preventDefault();
+  const handlePageClick = (coords) => {
+    // Actualizamos las coordenadas cuando el usuario hace clic en el visor
+    setSignatureCoords(coords);
+    setStatus({ 
+        message: `Posición de firma seleccionada en página ${coords.pageIndex + 1} (X: ${Math.round(coords.x)}, Y: ${Math.round(coords.y)})`, 
+        type: 'info' 
+    });
+  };
 
+  const handleFormSubmit = async ({ pdfFiles, certFile, password, reason }) => {
     if (pdfFiles.length === 0 || !certFile || !password) {
       setStatus({ message: 'Por favor, complete todos los campos requeridos.', type: 'error' });
       return;
     }
-
+    
     setIsLoading(true);
     setStatus({ message: `Firmando ${pdfFiles.length} documento(s)...`, type: 'info' });
-    setDownloadLinks([]); // Limpiamos los enlaces anteriores
-
+    setDownloadLinks([]);
     const newLinks = [];
 
     for (const pdfFile of pdfFiles) {
@@ -53,21 +53,20 @@ function App() {
       formData.append('password', password);
       formData.append('reason', reason);
       formData.append('location', 'Ecuador');
-      formData.append('page_index', 0);
-      formData.append('x_coord', 400);
-      formData.append('y_coord', 100);
-      formData.append('width', 150);
+      // --- ¡USAMOS LAS COORDENADAS SELECCIONADAS! ---
+      formData.append('page_index', signatureCoords.pageIndex);
+      formData.append('x_coord', signatureCoords.x);
+      formData.append('y_coord', signatureCoords.y);
+      formData.append('width', 150); // Mantenemos el ancho fijo por ahora
 
       try {
         const response = await axios.post('/api/sign', formData, {
           headers: { 'Content-Type': 'multipart/form-data' },
           responseType: 'blob',
         });
-        
         const url = window.URL.createObjectURL(new Blob([response.data]));
         const signedFileName = `firmado_${pdfFile.name}`;
         newLinks.push({ url, name: signedFileName });
-
       } catch (error) {
         let errorMessage = 'Ocurrió un error al firmar el archivo.';
         if (error.response && error.response.data) {
@@ -75,7 +74,7 @@ function App() {
             const errorText = await error.response.data.text();
             const errorJson = JSON.parse(errorText);
             errorMessage = errorJson.detail || errorMessage;
-          } catch (e) { /* Fallback a mensaje genérico */ }
+          } catch (e) { /* Fallback */ }
         }
         setStatus({ message: `Error al firmar ${pdfFile.name}: ${errorMessage}`, type: 'error' });
         setIsLoading(false);
@@ -90,121 +89,40 @@ function App() {
 
   return (
     <ThemeProvider theme={theme}>
-      <CssBaseline /> {/* Normaliza los estilos CSS en todos los navegadores */}
-      <Container maxWidth="sm">
-        <Box
-          sx={{
-            my: 4,
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            p: 3,
-            bgcolor: 'background.paper',
-            borderRadius: 2,
-            boxShadow: 3,
-          }}
-        >
-          <Typography component="h1" variant="h4" gutterBottom>
-            Firma Electrónica
-          </Typography>
-          <Typography variant="subtitle1" color="text.secondary" sx={{ mb: 3 }}>
-            Cargue sus documentos y certificado para la firma digital.
-          </Typography>
+      <CssBaseline />
+      <Container maxWidth="lg" sx={{ my: 2 }}>
+        <Typography component="h1" variant="h4" gutterBottom align="center">
+          Firma Electrónica
+        </Typography>
+        <Box sx={{ display: 'flex', flexDirection: { xs: 'column', md: 'row' }, gap: 2 }}>
+          
+          <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <Paper elevation={3} sx={{ p: 3 }}>
+              <Typography variant="h6" gutterBottom>Datos de la Firma</Typography>
+              {/* Pasamos la nueva función handlePdfSelection al formulario */}
+              <SignForm onSubmit={handleFormSubmit} onPdfSelect={handlePdfSelection} isLoading={isLoading} />
+            </Paper>
+            {status.message && (
+              <Alert severity={status.type}>{status.message}</Alert>
+            )}
+            {downloadLinks.length > 0 && (
+              <Paper elevation={3} sx={{ p: 2, bgcolor: '#e8f5e9' }}>
+                <Typography variant="h6" gutterBottom>Archivos Firmados:</Typography>
+                {downloadLinks.map((link, index) => (
+                  <Typography key={index}>
+                    <Link href={link.url} download={link.name}>Descargar {link.name}</Link>
+                  </Typography>
+                ))}
+              </Paper>
+            )}
+          </Box>
 
-          <Box component="form" onSubmit={handleSubmit} noValidate sx={{ mt: 1, width: '100%' }}>
-            <Button
-              variant="outlined"
-              component="label"
-              fullWidth
-              startIcon={<UploadFileIcon />}
-              sx={{ mb: 2 }}
-            >
-              1. Seleccionar PDF(s)
-              <input type="file" hidden accept=".pdf" multiple onChange={handlePdfChange} />
-            </Button>
-            {pdfFiles.length > 0 && <Typography variant="body2" sx={{ mb: 2 }}>{pdfFiles.length} archivo(s) PDF seleccionado(s).</Typography>}
-
-            <Button
-              variant="outlined"
-              component="label"
-              fullWidth
-              startIcon={<UploadFileIcon />}
-              sx={{ mb: 2 }}
-            >
-              2. Seleccionar Certificado (.p12)
-              <input type="file" hidden accept=".p12,.pfx" onChange={handleCertChange} />
-            </Button>
-            {certFile && <Typography variant="body2" sx={{ mb: 2 }}>{certFile.name}</Typography>}
-
-            <TextField
-              margin="normal"
-              required
-              fullWidth
-              name="password"
-              label="3. Contraseña del Certificado"
-              type="password"
-              id="password"
-              autoComplete="current-password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-            />
-            
-            <TextField
-              margin="normal"
-              fullWidth
-              name="reason"
-              label="4. Razón de la Firma (Opcional)"
-              type="text"
-              id="reason"
-              value={reason}
-              onChange={(e) => setReason(e.target.value)}
-            />
-
-            <Box sx={{ my: 2, position: 'relative' }}>
-              <Button
-                type="submit"
-                fullWidth
-                variant="contained"
-                disabled={isLoading}
-                size="large"
-              >
-                Firmar Documentos
-              </Button>
-              {isLoading && (
-                <CircularProgress
-                  size={24}
-                  sx={{
-                    position: 'absolute',
-                    top: '50%',
-                    left: '50%',
-                    marginTop: '-12px',
-                    marginLeft: '-12px',
-                  }}
-                />
-              )}
-            </Box>
+          <Box sx={{ flex: 1.5 }}>
+             <Typography variant="h6" gutterBottom>Previsualización (Haz clic para posicionar la firma)</Typography>
+             {/* Pasamos la nueva función handlePageClick al visor */}
+             <PdfViewer file={selectedPdf} onPageClick={handlePageClick} />
           </Box>
         </Box>
-        
-        {status.message && (
-          <Alert severity={status.type} sx={{ mt: 2 }}>
-            {status.message}
-          </Alert>
-        )}
-
-        {downloadLinks.length > 0 && (
-          <Box sx={{ mt: 2, p: 2, bgcolor: '#e8f5e9', borderRadius: 2 }}>
-            <Typography variant="h6" gutterBottom>Archivos Firmados:</Typography>
-            {downloadLinks.map((link, index) => (
-              <Typography key={index}>
-                <Link href={link.url} download={link.name}>
-                  Descargar {link.name}
-                </Link>
-              </Typography>
-            ))}
-          </Box>
-        )}
-
       </Container>
     </ThemeProvider>
   );
