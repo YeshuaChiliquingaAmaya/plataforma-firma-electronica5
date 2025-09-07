@@ -1,6 +1,7 @@
 # Framework para la API
 fastapi
 uvicorn[standard]
+fastapi-cors
 
 # Para la subida de archivos en FastAPI
 python-multipart
