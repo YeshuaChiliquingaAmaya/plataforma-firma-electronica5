@@ -1,39 +1,34 @@
 import os
 import tempfile
 import shutil
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException
+from fastapi import FastAPI, Depends, UploadFile, File, Form, HTTPException
 from fastapi.responses import FileResponse
-from starlette.background import BackgroundTask # ¡Importante!
+from starlette.background import BackgroundTask
 from datetime import datetime
-# --- ¡ESTA ES LA CORRECCIÓN! ---
-# Cambiamos las importaciones relativas por absolutas desde la carpeta 'app'
-from app import database
-from app.database import engine
+from sqlalchemy.orm import Session
 
+# --- ¡AQUÍ ESTÁ LA CORRECIÓN! ---
+# Le decimos a Python que busque dentro de la carpeta 'app'
+from app import database, models
+from app.database import engine
 from app.logic.pdf_signer import PDFSigner
 
-# Le decimos a SQLAlchemy que cree las tablas cuando la aplicación arranque
-database.Base.metadata.create_all(bind=engine)
-# --- FIN DE LA CORRECCIÓN ---
+# Ahora que importamos 'models', SQLAlchemy sabe qué tabla crear
+models.Base.metadata.create_all(bind=engine)
+# --- FIN DE LA CORRECIÓN ---
 
-# --- Configuración de la Aplicación FastAPI ---
 app = FastAPI(
     title="Firma EC - API",
     description="API para el sistema de firma electrónica de documentos.",
     version="1.0.0"
 )
 
-# --- Función de Limpieza ---
 def cleanup_temp_dir(temp_dir: str):
-    """Función para eliminar un directorio temporal de forma segura."""
     try:
         shutil.rmtree(temp_dir)
         print(f"Directorio temporal {temp_dir} eliminado.")
     except Exception as e:
         print(f"Error eliminando el directorio temporal {temp_dir}: {e}")
-
-
-# --- Endpoints de la API ---
 
 @app.get("/")
 def read_root():
@@ -41,6 +36,7 @@ def read_root():
 
 @app.post("/api/sign")
 async def sign_document(
+    db: Session = Depends(database.get_db),
     pdf_file: UploadFile = File(..., description="Archivo PDF a firmar."),
     cert_file: UploadFile = File(..., description="Certificado digital (.p12)."),
     password: str = Form(..., description="Contraseña del certificado."),
@@ -51,9 +47,7 @@ async def sign_document(
     y_coord: float = Form(100.0, description="Coordenada Y de la esquina inferior izquierda."),
     width: float = Form(150.0, description="Ancho del sello de la firma.")
 ):
-    # --- CAMBIO 1: Creamos el directorio temporal manualmente ---
     temp_dir = tempfile.mkdtemp()
-    
     try:
         input_pdf_path = os.path.join(temp_dir, pdf_file.filename)
         cert_path = os.path.join(temp_dir, cert_file.filename)
@@ -78,16 +72,22 @@ async def sign_document(
         )
         
         if not success:
-            # --- CAMBIO 2: Mejoramos el mensaje de error para el índice de página ---
             if "Page index out of range" in message:
-                raise HTTPException(
-                    status_code=400, 
-                    detail=f"Error de paginación: El PDF no tiene una página con índice {page_index}. Recuerda que la primera página es 0."
-                )
+                raise HTTPException(status_code=400, detail=f"Error de paginación: El PDF no tiene una página con índice {page_index}.")
             raise HTTPException(status_code=400, detail=f"Error al firmar: {message}")
 
-        # --- CAMBIO 3: Usamos BackgroundTask para la limpieza ---
-        # Le decimos a FastAPI que envíe el archivo, y DESPUÉS, ejecute la limpieza.
+        new_record = models.SignatureRecord(
+            original_pdf_filename=pdf_file.filename,
+            certificate_filename=cert_file.filename,
+            signature_reason=reason,
+            signature_location=location,
+            signed_by=signer.cert_subject
+        )
+        db.add(new_record)
+        db.commit()
+        db.refresh(new_record)
+        print(f"Registro de firma guardado con ID: {new_record.id}")
+
         cleanup_task = BackgroundTask(cleanup_temp_dir, temp_dir)
         return FileResponse(
             path=output_pdf_path,
@@ -95,12 +95,10 @@ async def sign_document(
             media_type='application/pdf',
             background=cleanup_task
         )
-    except HTTPException as http_exc:
-        # Si ya es un error que nosotros creamos (como el del índice), lo relanzamos.
-        # Y nos aseguramos de limpiar el directorio.
-        cleanup_temp_dir(temp_dir)
-        raise http_exc
     except Exception as e:
-        # Si es un error inesperado, lo capturamos y limpiamos.
         cleanup_temp_dir(temp_dir)
+        if 'db' in locals() and db.is_active:
+            db.rollback()
+        if isinstance(e, HTTPException):
+            raise e
         raise HTTPException(status_code=500, detail=f"Ocurrió un error inesperado en el servidor: {str(e)}")
