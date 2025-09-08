@@ -3,6 +3,10 @@ from fastapi.middleware.cors import CORSMiddleware # ¡Importación nueva!
 from app import database, models
 from app.database import engine
 from app.routers import documents 
+from app.minio_client import create_bucket_if_not_exists # ¡Importación nueva!
+
+# Nombre del bucket que usaremos en MinIO
+DOCUMENTS_BUCKET = "documents"
 
 models.Base.metadata.create_all(bind=engine)
 
@@ -11,6 +15,19 @@ app = FastAPI(
     description="API para el sistema de firma electrónica de documentos.",
     version="1.0.0"
 )
+
+# --- ¡AQUÍ ESTÁ LA CORRECCIÓN! ---
+@app.on_event("startup")
+def on_startup():
+    """
+    Esta función se ejecuta una sola vez, cuando la API arranca.
+    Nos aseguramos de que el bucket de MinIO exista.
+    """
+
+    print("Verificando la existencia del bucket de MinIO...")
+    create_bucket_if_not_exists(DOCUMENTS_BUCKET)
+    print("Bucket de MinIO listo.")
+# --- FIN DE LA CORRECCIÓN ---
 
 # --- ¡AQUÍ ESTÁ LA CORRECCIÓN! ---
 # Definimos de dónde permitiremos las peticiones.

@@ -12,6 +12,8 @@ from typing import List
 # Importamos desde las carpetas correctas usando la estructura de paquetes
 from .. import database, models, schemas, minio_client
 from ..logic.pdf_signer import PDFSigner
+# ¡CAMBIO! Importamos la configuración desde su nuevo hogar
+from ..config import DOCUMENTS_BUCKET
 
 # Creamos un router. Es como una mini-aplicación de FastAPI.
 router = APIRouter(
@@ -19,7 +21,7 @@ router = APIRouter(
     tags=["documents"],      # Agrupa estas rutas en la documentación de la API
 )
 
-DOCUMENTS_BUCKET = "documents"
+# DOCUMENTS_BUCKET = "documents"
 
 def cleanup_temp_dir(temp_dir: str):
     try:
