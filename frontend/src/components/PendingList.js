@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { Typography, Paper, List, ListItem, ListItemText, CircularProgress, Divider, IconButton, Box } from '@mui/material';
+import { Typography, Paper, List, ListItem, ListItemText, CircularProgress, Divider, IconButton, Box, Checkbox, ListItemButton, ListItemIcon } from '@mui/material';
 import RefreshIcon from '@mui/icons-material/Refresh';
 
-function PendingList({ onDocumentSelect, refreshKey }) {
+// Añadimos 'setPendingDocs' para comunicarnos con el componente padre
+function PendingList({ onDocumentSelect, refreshKey, selectedIds, onToggleSelect, setPendingDocs }) {
   const [documents, setDocuments] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -13,10 +14,12 @@ function PendingList({ onDocumentSelect, refreshKey }) {
       setIsLoading(true);
       const response = await axios.get('/api/documents/pending');
       setDocuments(response.data);
+      setPendingDocs(response.data); // Informamos al padre de la lista de documentos
       setError(null);
     } catch (err) {
       setError('No se pudo cargar la lista de documentos.');
       setDocuments([]);
+      setPendingDocs([]); // Informamos al padre que la lista está vacía
     } finally {
       setIsLoading(false);
     }
@@ -45,17 +48,35 @@ function PendingList({ onDocumentSelect, refreshKey }) {
           {documents.length === 0 ? (
             <ListItem><ListItemText primary="No hay documentos pendientes de firma." /></ListItem>
           ) : (
-            documents.map((doc, index) => (
-              <React.Fragment key={doc.id}>
-                <ListItem component="button" onClick={() => onDocumentSelect(doc)}>
-                  <ListItemText 
-                    primary={doc.original_filename} 
-                    secondary={`Esperando firma de Nivel ${doc.current_signer_level}.`} 
-                  />
-                </ListItem>
-                {index < documents.length - 1 && <Divider />}
-              </React.Fragment>
-            ))
+            documents.map((doc, index) => {
+              const labelId = `checkbox-list-label-${doc.id}`;
+              const isSelected = selectedIds.includes(doc.id);
+
+              return (
+                <React.Fragment key={doc.id}>
+                  <ListItem disablePadding>
+                    <ListItemIcon>
+                      <Checkbox
+                        edge="start"
+                        checked={isSelected}
+                        tabIndex={-1}
+                        disableRipple
+                        inputProps={{ 'aria-labelledby': labelId }}
+                        onChange={() => onToggleSelect(doc.id)}
+                      />
+                    </ListItemIcon>
+                    <ListItemButton component="button" onClick={() => onDocumentSelect(doc)}>
+                      <ListItemText 
+                        id={labelId}
+                        primary={doc.original_filename} 
+                        secondary={`Esperando firma de Nivel ${doc.current_signer_level}.`} 
+                      />
+                    </ListItemButton>
+                  </ListItem>
+                  {index < documents.length - 1 && <Divider />}
+                </React.Fragment>
+              );
+            })
           )}
         </List>
       )}
